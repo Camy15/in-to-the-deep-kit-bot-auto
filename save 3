@@ -1,0 +1,290 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.hardware.CRServo;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.Servo;
+
+import com.qualcomm.robotcore.eventloop.opmode.Disabled;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.util.ElapsedTime;
+import com.qualcomm.robotcore.util.Range;
+
+
+//import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
+
+@Autonomous(name="CamCamAuto", group="Linear OpMode")
+
+public class CamCamAuto extends LinearOpMode {
+
+    // Declare OpMode members.
+    private ElapsedTime runtime = new ElapsedTime();
+    
+    public DcMotor  leftDrive   = null; //the left drivetrain motor
+    public DcMotor  rightDrive  = null; //the right drivetrain motor
+    public DcMotor  armMotor    = null; //the arm motor
+    public CRServo  intake      = null; //the active intake servo
+    public Servo    wrist       = null; //the wrist servo
+    
+    @Override
+    public void runOpMode() {
+        telemetry.addData("Status", "Initialized");
+        telemetry.update();
+
+        // Initialize the hardware variables. Note that the strings used here as parameters
+        // to 'get' must correspond to the names assigned during the robot configuration
+        // step (using the FTC Robot Controller app on the phone).
+        leftDrive  = hardwareMap.get(DcMotor.class, "Left_Drive");
+        rightDrive = hardwareMap.get(DcMotor.class, "Right_Drive");
+        armMotor = hardwareMap.get(DcMotor.class, "Arm");
+        
+        /* Define and initialize servos.*/
+        intake = hardwareMap.get(CRServo.class, "intake");
+        wrist  = hardwareMap.get(Servo.class, "wrist");
+        
+        // To drive forward, most robots need the motor on one side to be reversed, because the axles point in opposite directions.
+        // Pushing the left stick forward MUST make robot go forward. So adjust these two lines based on your first test drive.
+        // Note: The settings here assume direct drive on left and right wheels.  Gear Reduction or 90 Deg drives may require direction flips
+        leftDrive.setDirection(DcMotor.Direction.FORWARD);
+        rightDrive.setDirection(DcMotor.Direction.REVERSE);
+        leftDrive.setDirection(DcMotor.Direction.FORWARD);
+        
+        final double ARM_TICKS_PER_DEGREE =
+            28 // number of encoder ticks per rotation of the bare motor
+                    * 250047.0 / 4913.0 // This is the exact gear ratio of the 50.9:1 Yellow Jacket gearbox
+                    * 100.0 / 20.0 // This is the external gear reduction, a 20T pinion gear that drives a 100T hub-mount gear
+                    * 1/360.0; // we want ticks per degree, not per rotation
+
+
+        /* These constants hold the position that the arm is commanded to run to.
+        These are relative to where the arm was located when you start the OpMode. So make sure the
+        arm is reset to collapsed inside the robot before you start the program.
+
+        In these variables you'll see a number in degrees, multiplied by the ticks per degree of the arm.
+        This results in the number of encoder ticks the arm needs to move in order to achieve the ideal
+        set position of the arm. For example, the ARM_SCORE_SAMPLE_IN_LOW is set to
+        160 * ARM_TICKS_PER_DEGREE. This asks the arm to move 160° from the starting position.
+        If you'd like it to move further, increase that number. If you'd like it to not move
+        as far from the starting position, decrease it. */
+
+        final double ARM_COLLAPSED_INTO_ROBOT  = 0;
+        final double ARM_COLLECT               = 250 * ARM_TICKS_PER_DEGREE;
+        final double ARM_CLEAR_BARRIER         = 230 * ARM_TICKS_PER_DEGREE;
+        final double ARM_SCORE_SPECIMEN        = 160 * ARM_TICKS_PER_DEGREE;
+        final double ARM_SCORE_SAMPLE_IN_LOW   = 160 * ARM_TICKS_PER_DEGREE;
+        final double ARM_ATTACH_HANGING_HOOK   = 120 * ARM_TICKS_PER_DEGREE;
+        final double ARM_WINCH_ROBOT           = 15  * ARM_TICKS_PER_DEGREE;
+
+        /* Variables to store the speed the intake servo should be set at to intake, and deposit game elements. */
+        final double INTAKE_COLLECT    = -1.0;
+        final double INTAKE_OFF        =  0.0;
+        final double INTAKE_DEPOSIT    =  0.5;
+
+        /* Variables to store the positions that the wrist should be set to when folding in, or folding out. */
+        final double WRIST_FOLDED_IN   = 0.8333;
+        final double WRIST_FOLDED_OUT  = 0.5;
+
+        /* A number in degrees that the triggers can adjust the arm position by */
+        final double FUDGE_FACTOR = 15 * ARM_TICKS_PER_DEGREE;
+
+        /* Variables that are used to set the arm to a specific position */
+        double armPosition = (int)ARM_COLLAPSED_INTO_ROBOT;
+        double armPositionFudgeFactor;
+        
+
+        /* Make sure that the intake is off, and the wrist is folded in. */
+        armMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        intake.setPower(INTAKE_OFF);
+        wrist.setPosition(WRIST_FOLDED_IN);
+        
+        
+        // Wait for the game to start (driver presses START)
+        waitForStart();
+        runtime.reset();
+
+        
+        /*forward(0.5,0.25);
+        R(0.5,1);//0.5 = ~45 at 0.5 power
+        arm(0.75,1.3);
+        wrist.setPosition(0.5);
+        sleep(500);
+        intake.setPower(1);
+        sleep(1000);
+        intake.setPower(0);
+        forward(0.75,0.53);
+        L(0.5,0.35);
+        forward(0.5,0.6);
+        wrist.setPosition(0.8333);
+        arm(-0.5,0.9);
+        R(0.5,0.1);
+        forward(-0.6,1.4);
+        forward(0.6,1.4);
+        L(0.5,0.8);
+        forward(0.4,0.7);
+        sleep(500);
+        R(0.5,0.7);
+        forward(-0.5,1.6);
+        L(0.2,0.2);
+        forward(0.5,0.7);
+        forward(0.5,0.55);
+        R(0.3,0.1);
+        */
+        
+        F(550,0.5,0);
+        R(450,0.5,0);
+        R(450,0.5,0);
+        B(250,0.5,0);
+        U(600+850*3,0.5,0);
+        wrist.setPosition(WRIST_FOLDED_OUT);
+        sleep(250);
+        intake.setPower(INTAKE_DEPOSIT);
+        sleep(750);
+        intake.setPower(INTAKE_OFF);
+        D(1000,0.5,0);
+        wrist.setPosition(WRIST_FOLDED_IN);
+        F(1000,0.5,0);
+        L(410,0.5,0);
+        F(1000,0.5,0);
+        //sleep(3000);
+        //B(1,0.5,0);
+        R(300,0.5,0);
+        B(2000,0.6,0);
+        F(1200,0.6,0);
+        L(600,0.5,0);
+        F(750,0.5,0);
+        R(450,0.5,0);
+        B(2200,0.6,0);
+        F(1900,1,0);
+        R(600,1,0);
+        F(650,0.7,0);
+        U(550+800*2,0.5,0);
+        F(200,0.5,0);
+        D(200,0.5,0);
+    }
+    void U (int targPos, double power,double time)
+    {
+        /*armMotor.setPower(power);
+        sleep((long)(time*1000));
+        armMotor.setPower(0);*/
+        armMotor.setTargetPosition(targPos);//550 = flat arm, from there 850 incroments for 45 degrese
+        armMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        armMotor.setPower(power);
+        sleep((long)(targPos*1));
+        
+        stopMove();
+    }
+    void D (int targPos, double power,double time)
+    {
+        armMotor.setTargetPosition(-targPos);//550 = flat arm, from there 850 incroments for 45 degrese
+        armMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        armMotor.setPower(power);
+        sleep((long)(targPos*1));
+        
+        stopMove();
+    }
+    void F(int targPos,double power,double time)
+    {
+        /*leftDrive.setPower(power);
+        rightDrive.setPower(power);
+        sleep((long)(time*1000));
+        if (power>0)
+        {
+            leftDrive.setPower(-0.1);
+        rightDrive.setPower(-0.1);
+        sleep(50);
+        }
+        else if(power<0)
+        {
+        leftDrive.setPower(0.1);
+        rightDrive.setPower(0.1);
+        sleep(50);
+        }
+        
+        stopMove();*/
+        leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        leftDrive.setTargetPosition(targPos);
+        rightDrive.setTargetPosition(targPos);
+        leftDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        leftDrive.setPower(power);
+        rightDrive.setPower(power);
+        sleep((long)(targPos*1+50));
+        leftDrive.setTargetPosition(-targPos);
+        rightDrive.setTargetPosition(-targPos);
+        sleep(50);
+        
+        stopMove();
+    }
+    void B(int targPos,double power,double time)
+    {   
+        leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        leftDrive.setTargetPosition(-targPos);
+        rightDrive.setTargetPosition(-targPos);
+        leftDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        leftDrive.setPower(power);
+        rightDrive.setPower(power);
+        sleep((long)(targPos*1));
+        leftDrive.setTargetPosition(targPos);
+        rightDrive.setTargetPosition(targPos);
+        sleep(50);
+        
+        stopMove();
+    }
+    void L(int targPos,double power,double time)
+    {
+        /*leftDrive.setPower(-power);
+        rightDrive.setPower(power);
+        sleep((long)(time*1000));
+        
+        
+        stopMove();*/
+        leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        leftDrive.setTargetPosition(-targPos);//450+450 is equal to 90 degrese, but 900 is over 90 degrese
+        rightDrive.setTargetPosition(targPos);
+        leftDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        leftDrive.setPower(power);
+        rightDrive.setPower(power);
+        sleep((long)(targPos*1));
+        
+        stopMove();
+    }
+    void R(int targPos,double power,double time)
+    {
+        /*leftDrive.setPower(power);
+        rightDrive.setPower(-power);
+        sleep((long)(time*1000));
+        
+        
+        stopMove();*/
+        leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        leftDrive.setTargetPosition(targPos);//450+450 is equal to 90 degrese, but 900 is over 90 degrese
+        rightDrive.setTargetPosition(-targPos);
+        leftDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        leftDrive.setPower(power);
+        rightDrive.setPower(power);
+        sleep((long)(targPos*1));
+        
+        stopMove();
+    }
+    void stopMove(){
+        
+        leftDrive.setPower(0);
+        rightDrive.setPower(0);
+        armMotor.setPower(0);
+        
+        sleep(250);
+    }
+}
